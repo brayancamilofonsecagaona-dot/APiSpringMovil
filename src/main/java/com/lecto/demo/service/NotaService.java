@@ -32,7 +32,7 @@ public class NotaService {
         // Evaluamos qué parámetros nos llegaron para llamar al método adecuado del repositorio
         if (q != null && !q.isBlank()) {
             // La búsqueda por palabra clave va sobre el texto de la nota (tarea 1.4)
-            notas = notaRepository.findByUsuarioIdAndEliminadoFalseAndTextoContainingIgnoreCase(uid, q);
+            notas = notaRepository.findByUsuarioIdAndEliminadoFalseAndTextoContainingIgnoreCaseOrderByFechaCreacionDesc(uid, q);
             // Si además mandaron materia, se filtra el resultado en memoria
             if (materiaId != null) {
                 notas = notas.stream()

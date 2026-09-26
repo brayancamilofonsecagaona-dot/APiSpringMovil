@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -29,9 +30,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidationExceptions(MethodArgumentNotValidException ex) {
         // Un mensaje por cada campo que falló, ej: {"color": "El color debe ser..."}
+        // El nombre del campo se pasa a snake_case para que coincida con el resto del JSON
         Map<String, String> erroresCampos = new LinkedHashMap<>();
         ex.getBindingResult().getFieldErrors()
-                .forEach(error -> erroresCampos.put(error.getField(), error.getDefaultMessage()));
+                .forEach(error -> erroresCampos.put(aSnakeCase(error.getField()), error.getDefaultMessage()));
 
         // Map<String, Object> porque "campos" guarda otro mapa, no un texto
         Map<String, Object> respuesta = new LinkedHashMap<>();
@@ -75,6 +77,13 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.METHOD_NOT_ALLOWED, "Método " + ex.getMethod() + " no permitido en esta ruta");
     }
 
+    // Content-Type no soportado, ej: un POST sin "Content-Type: application/json" responde 415
+    // (sin este handler, el genérico de abajo lo convertiría en un 500)
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex) {
+        return error(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "El tipo de contenido no es soportado, usa application/json");
+    }
+
     // La base de datos rechace algo tipo una FK, integridad, etc, responde 409
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
@@ -99,5 +108,10 @@ public class GlobalExceptionHandler {
         Map<String, Object> respuesta = new LinkedHashMap<>();
         respuesta.put("error", mensaje);
         return ResponseEntity.status(status).body(respuesta);
+    }
+
+    // Convierte un nombre de campo Java a snake_case, ej: fechaModificacion -> fecha_modificacion
+    private String aSnakeCase(String campo) {
+        return campo.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase();
     }
 }

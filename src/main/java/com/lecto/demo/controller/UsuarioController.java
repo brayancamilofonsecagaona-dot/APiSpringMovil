@@ -1,17 +1,24 @@
 package com.lecto.demo.controller;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseAuthException;
 import com.lecto.demo.dto.UsuarioRequestDto;
 import com.lecto.demo.dto.UsuarioResponseDto;
 import com.lecto.demo.service.UsuarioService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController // Con esta anotación le decimos a Spring que va a manejar peticiones web
 @RequestMapping("/usuarios") // Prefijo base para todos los endpoints de este controlador
 public class UsuarioController {
+
+    private static final Logger log = LoggerFactory.getLogger(UsuarioController.class);
 
     private final UsuarioService usuarioService;
 
@@ -54,7 +61,22 @@ public class UsuarioController {
     @DeleteMapping("/me")
     public ResponseEntity<Void> eliminarCuenta(HttpServletRequest request) {
         String uid = obtenerUid(request);
+
+        // Primero los datos: el service los borra en una sola transacción
         usuarioService.eliminar(uid);
+
+        // Después Firebase, cuando la transacción ya terminó.
+        // Si esto falla, los datos ya se borraron pero la cuenta sigue en Firebase.
+        // Al volver a entrar, el filtro le crearía un registro nuevo y vacío.
+        try {
+            FirebaseAuth.getInstance().deleteUser(uid);
+        } catch (FirebaseAuthException e) {
+            log.error("Los datos de {} se borraron, pero falló el borrado en Firebase", uid, e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Los datos de la cuenta ya se borraron, pero no se pudo eliminar el usuario en Firebase");
+        }
+        log.info("Cuenta eliminada por completo: {}", uid);
+
         return ResponseEntity.noContent().build(); // Devuelve código 204 No Content sin cuerpo
     }
 }

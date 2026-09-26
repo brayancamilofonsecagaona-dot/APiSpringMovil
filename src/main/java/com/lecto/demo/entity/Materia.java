@@ -17,10 +17,10 @@ public class Materia {
     @Column(nullable = false, length = 7)
     private String color;
 
-    @Column(nullable = false, length = 60)
+    @Column(nullable = false, length = 30)
     private String icono;
 
-    @Column(length = 60)
+    @Column(nullable = false, length = 60)
     private String nombre;
 
         @Column(nullable = false)

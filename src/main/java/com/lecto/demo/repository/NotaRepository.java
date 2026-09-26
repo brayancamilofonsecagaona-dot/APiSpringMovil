@@ -29,7 +29,7 @@ public interface NotaRepository extends JpaRepository<Nota, UUID> {
     List<Nota> findByUsuarioIdAndMateriaIdAndEliminadoFalseOrderByFechaCreacionDesc(String usuarioId, UUID materiaId);
 
     // Búsqueda por palabra clave dentro del texto de las notas
-    List<Nota> findByUsuarioIdAndEliminadoFalseAndTextoContainingIgnoreCase(String usuarioId, String texto);
+    List<Nota> findByUsuarioIdAndEliminadoFalseAndTextoContainingIgnoreCaseOrderByFechaCreacionDesc(String usuarioId, String texto);
 
     // Para la sincronización: trae lo que cambió desde una fecha,
     // incluidas las notas eliminadas (la app necesita saber qué se borró)

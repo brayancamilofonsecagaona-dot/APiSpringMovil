@@ -1,7 +1,5 @@
 package com.lecto.demo.service;
 
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
 import com.lecto.demo.dto.UsuarioRequestDto;
 import com.lecto.demo.dto.UsuarioResponseDto;
@@ -97,37 +95,22 @@ public class UsuarioService {
         return mapearADto(usuarioRepository.save(usuario));
     }
 
-    // 3. Eliminar la cuenta: primero los datos, después Firebase.
-    // Se divide en dos partes para que Firebase quede FUERA de la transacción:
-    // si el borrado en la base falla, en Firebase no se toca nada.
-    public void eliminar(String uid) {
-        eliminarDatos(uid);
-
-        // Si esto falla, los datos ya se borraron pero la cuenta sigue en Firebase.
-        // Al volver a entrar, el filtro le crearía un registro nuevo y vacío.
-        try {
-            FirebaseAuth.getInstance().deleteUser(uid);
-        } catch (FirebaseAuthException e) {
-            log.error("Los datos de {} se borraron, pero falló el borrado en Firebase", uid, e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "La cuenta se borró parcialmente, intenta de nuevo");
-        }
-        log.info("Cuenta eliminada por completo: {}", uid);
-    }
-
-    // --- Métodos internos ---
-
-    // Borra los datos del usuario en el orden que permiten las llaves foráneas:
+    // 3. Eliminar los datos de la cuenta en el orden que permiten las llaves foráneas:
     // notas, luego materias, luego el usuario. Todo en una sola transacción.
+    // El borrado en Firebase lo hace el controller después, FUERA de esta transacción:
+    // si el borrado en la base falla, en Firebase no se toca nada.
     @Transactional
-    protected void eliminarDatos(String uid) {
+    public void eliminar(String uid) {
         if (!usuarioRepository.existsById(uid)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuario no encontrado");
         }
         notaRepository.deleteByUsuarioId(uid);
         materiaRepository.deleteByUsuarioId(uid);
         usuarioRepository.deleteById(uid);
+        log.info("Datos de la cuenta eliminados: {}", uid);
     }
+
+    // --- Métodos internos ---
 
     // Busca el usuario o lanza 404
     private Usuario buscarEntidad(String uid) {
