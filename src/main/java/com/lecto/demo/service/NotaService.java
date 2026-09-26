@@ -146,7 +146,8 @@ public class NotaService {
                 nota.getImagenUrl(),
                 nota.getFechaCreacion(),
                 nota.getFechaModificacion(),
-                nota.isEliminado()
+                // Contrato del JSON: 1 = activo, 0 = eliminado
+                nota.isEliminado() ? 0 : 1
         );
     }
 }

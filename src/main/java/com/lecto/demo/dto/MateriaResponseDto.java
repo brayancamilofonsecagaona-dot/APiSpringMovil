@@ -10,25 +10,29 @@ public class MateriaResponseDto {
     private String icono;
     private Instant fechaCreacion;
     private Instant fechaModificacion;
-    private boolean eliminado;
+    // Contrato del JSON acordado con el equipo: 1 = activo, 0 = eliminado.
+    // En PostgreSQL la columna sigue siendo el booleano "eliminado".
+    private int estado;
     private long cantidadNotas;
 
     // Constructor con todos los parámetros para mapear fácilmente las consultas
     public MateriaResponseDto(UUID id, String nombre, String color, String icono,
                               Instant fechaCreacion, Instant fechaModificacion,
-                              boolean eliminado, long cantidadNotas) {
+                              int estado, long cantidadNotas) {
         this.id = id;
         this.nombre = nombre;
         this.color = color;
         this.icono = icono;
         this.fechaCreacion = fechaCreacion;
         this.fechaModificacion = fechaModificacion;
-        this.eliminado = eliminado;
+        this.estado = estado;
         this.cantidadNotas = cantidadNotas;
     }
+
     public MateriaResponseDto(){
 
     }
+
     public UUID getId() {
         return id;
     }
@@ -77,12 +81,12 @@ public class MateriaResponseDto {
         this.fechaModificacion = fechaModificacion;
     }
 
-    public boolean isEliminado() {
-        return eliminado;
+    public int getEstado() {
+        return estado;
     }
 
-    public void setEliminado(boolean eliminado) {
-        this.eliminado = eliminado;
+    public void setEstado(int estado) {
+        this.estado = estado;
     }
 
     public long getCantidadNotas() {

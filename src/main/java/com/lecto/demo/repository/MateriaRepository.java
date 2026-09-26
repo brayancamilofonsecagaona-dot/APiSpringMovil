@@ -18,7 +18,8 @@ public interface MateriaRepository extends JpaRepository<Materia, UUID> {
     @Query("""
         SELECT new com.lecto.demo.dto.MateriaResponseDto(
             m.id, m.nombre, m.color, m.icono,
-            m.fechaCreacion, m.fechaModificacion, m.eliminado,
+            m.fechaCreacion, m.fechaModificacion,
+            (CASE WHEN m.eliminado = true THEN 0 ELSE 1 END),
             (SELECT COUNT(n) FROM Nota n WHERE n.materiaId = m.id AND n.eliminado = false)
         )
         FROM Materia m

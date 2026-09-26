@@ -53,16 +53,19 @@ public class SyncService {
 
     // Métodos auxiliares
 
-    // El conteo de notas va en 0: en la sincronización la app lo calcula de su base local
+    // El conteo de notas va en 0: en la sincronización la app lo calcula de su base local.
+    // Aquí sí llegan materias eliminadas, por eso el estado puede venir en 0.
     private MateriaResponseDto mapearMateria(Materia m) {
         return new MateriaResponseDto(
                 m.getId(), m.getNombre(), m.getColor(), m.getIcono(),
-                m.getFechaCreacion(), m.getFechaModificacion(), m.isEliminado(), 0);
+                m.getFechaCreacion(), m.getFechaModificacion(),
+                m.isEliminado() ? 0 : 1, 0);
     }
 
     private NotaResponseDto mapearNota(Nota n) {
         return new NotaResponseDto(
                 n.getId(), n.getMateriaId(), n.getTitulo(), n.getTexto(), n.getImagenUrl(),
-                n.getFechaCreacion(), n.getFechaModificacion(), n.isEliminado());
+                n.getFechaCreacion(), n.getFechaModificacion(),
+                n.isEliminado() ? 0 : 1);
     }
 }

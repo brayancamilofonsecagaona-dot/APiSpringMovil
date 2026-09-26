@@ -117,6 +117,6 @@ public class MateriaService {
         return new MateriaResponseDto(
                 m.getId(), m.getNombre(), m.getColor(), m.getIcono(),
                 m.getFechaCreacion(), m.getFechaModificacion(),
-                m.isEliminado(), cantidadNotas);
+                m.isEliminado() ? 0 : 1, cantidadNotas);
     }
 }

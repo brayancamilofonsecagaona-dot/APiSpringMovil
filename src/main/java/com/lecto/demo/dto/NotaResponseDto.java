@@ -12,14 +12,15 @@ public class NotaResponseDto {
     private String imagenUrl;
     private Instant fechaCreacion;
     private Instant fechaModificacion;
-    private boolean eliminado;
+    // Contrato del JSON acordado con el equipo: 1 = activo, 0 = eliminado
+    private int estado;
 
     // Constructor vacío
     public NotaResponseDto() {}
 
     // Constructor completo
     public NotaResponseDto(UUID id, UUID materiaId, String titulo, String texto, String imagenUrl,
-                           Instant fechaCreacion, Instant fechaModificacion, boolean eliminado) {
+                           Instant fechaCreacion, Instant fechaModificacion, int estado) {
         this.id = id;
         this.materiaId = materiaId;
         this.titulo = titulo;
@@ -27,7 +28,7 @@ public class NotaResponseDto {
         this.imagenUrl = imagenUrl;
         this.fechaCreacion = fechaCreacion;
         this.fechaModificacion = fechaModificacion;
-        this.eliminado = eliminado;
+        this.estado = estado;
     }
 
     // Getters y Setters
@@ -52,6 +53,6 @@ public class NotaResponseDto {
     public Instant getFechaModificacion() { return fechaModificacion; }
     public void setFechaModificacion(Instant fechaModificacion) { this.fechaModificacion = fechaModificacion; }
 
-    public boolean isEliminado() { return eliminado; }
-    public void setEliminado(boolean eliminado) { this.eliminado = eliminado; }
+    public int getEstado() { return estado; }
+    public void setEstado(int estado) { this.estado = estado; }
 }
