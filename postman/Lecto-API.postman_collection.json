@@ -1,0 +1,1193 @@
+{
+  "info": {
+    "_postman_id": "3b8f5c2e-6a41-4d7e-9c0b-2f1e8d7a6b54",
+    "name": "Lecto API",
+    "description": "API REST de Lecto (app Android para digitalizar apuntes con OCR).\n\nTodos los endpoints menos `/health` requieren un ID token de Firebase, que se envía como Bearer Token con `{{token}}`. Si el environment tiene `apiKey`, `email` y `password`, el script de la colección obtiene y renueva el token solo.\n\nJSON en snake_case. En materias y notas, `estado`: 1 = activo, 0 = eliminado.\n\nDocumentación completa: docs/endpoints.md",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Obtiene un token de Firebase con apiKey, email y password del environment",
+          "// cuando no hay token o el guardado ya venció. Si esas variables están vacías, no hace nada",
+          "// y se usa el valor que tenga {{token}}.",
+          "const apiKey = pm.environment.get('apiKey');",
+          "const email = pm.environment.get('email');",
+          "const password = pm.environment.get('password');",
+          "const esHealth = pm.request.url.getPath().startsWith('/health');",
+          "",
+          "function tokenVigente(token) {",
+          "    if (!token) { return false; }",
+          "    try {",
+          "        let payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');",
+          "        while (payload.length % 4) { payload += '='; }",
+          "        const datos = JSON.parse(CryptoJS.enc.Base64.parse(payload).toString(CryptoJS.enc.Utf8));",
+          "        // Se renueva un minuto antes de que venza",
+          "        return datos.exp * 1000 > Date.now() + 60000;",
+          "    } catch (e) {",
+          "        return false;",
+          "    }",
+          "}",
+          "",
+          "if (!esHealth && apiKey && email && password && !tokenVigente(pm.environment.get('token'))) {",
+          "    pm.sendRequest({",
+          "        url: 'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=' + apiKey,",
+          "        method: 'POST',",
+          "        header: { 'Content-Type': 'application/json' },",
+          "        body: { mode: 'raw', raw: JSON.stringify({ email: email, password: password, returnSecureToken: true }) }",
+          "    }, (err, res) => {",
+          "        if (err) {",
+          "            console.error('No se pudo contactar a Firebase:', err);",
+          "            return;",
+          "        }",
+          "        const datos = res.json();",
+          "        if (datos.idToken) {",
+          "            pm.environment.set('token', datos.idToken);",
+          "        } else {",
+          "            console.error('Firebase rechazó el login:', datos.error && datos.error.message);",
+          "        }",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "materiaId",
+      "value": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "type": "string"
+    },
+    {
+      "key": "notaId",
+      "value": "9b2f8d4e-1c3a-4e5f-8a7b-6c5d4e3f2a1b",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Salud",
+      "description": "Estado de la API y de la base de datos. No requiere token.",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Indica si la API está viva y si tiene conexión con la base de datos. Público: no necesita token (el filtro lo ignora aunque se envíe).\n\nErrores: 503 con `{\"status\": \"degraded\", \"db\": \"down\"}` si no hay conexión con la base."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/health",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "health"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"up\",\n  \"db\": \"up\"\n}",
+              "_postman_previewlanguage": "json"
+            },
+            {
+              "name": "503 Sin base de datos",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/health",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "health"
+                  ]
+                }
+              },
+              "status": "Service Unavailable",
+              "code": 503,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"status\": \"degraded\",\n  \"db\": \"down\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Materias",
+      "description": "CRUD de materias del usuario autenticado. Los requests con `{{materiaId}}` usan la última materia creada con \"Crear materia\".",
+      "item": [
+        {
+          "name": "Listar materias",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/materias",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "materias"
+              ]
+            },
+            "description": "Lista las materias activas del usuario, ordenadas por nombre, con `cantidad_notas` (notas activas). `estado` siempre es 1 aquí.\n\nErrores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/materias",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "materias"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "[\n  {\n    \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n    \"nombre\": \"Cálculo\",\n    \"color\": \"#4A90E2\",\n    \"icono\": \"calculadora\",\n    \"fecha_creacion\": \"2026-09-26T15:30:00Z\",\n    \"fecha_modificacion\": \"2026-09-26T15:30:00Z\",\n    \"estado\": 1,\n    \"cantidad_notas\": 3\n  }\n]",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Crear materia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/materias",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "materias"
+              ]
+            },
+            "description": "Crea una materia. El `id` (UUID) lo genera la app; este request genera uno nuevo en cada envío y lo guarda en la variable `materiaId`.\n\nErrores: 400 (datos inválidos, color no hexadecimal, JSON mal formado), 409 (`La materia ya existe`: ese id ya está en uso), 409 (error de integridad). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{materiaId}}\",\n  \"nombre\": \"Cálculo\",\n  \"color\": \"#4A90E2\",\n  \"icono\": \"calculadora\",\n  \"fecha_creacion\": \"{{$isoTimestamp}}\",\n  \"fecha_modificacion\": \"{{$isoTimestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/materias",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "materias"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"id\": \"{{materiaId}}\",\n  \"nombre\": \"Cálculo\",\n  \"color\": \"#4A90E2\",\n  \"icono\": \"calculadora\",\n  \"fecha_creacion\": \"{{$isoTimestamp}}\",\n  \"fecha_modificacion\": \"{{$isoTimestamp}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"nombre\": \"Cálculo\",\n  \"color\": \"#4A90E2\",\n  \"icono\": \"calculadora\",\n  \"fecha_creacion\": \"2026-09-26T15:30:00Z\",\n  \"fecha_modificacion\": \"2026-09-26T15:30:00Z\",\n  \"estado\": 1,\n  \"cantidad_notas\": 0\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Genera un UUID nuevo para la materia y lo guarda para los demás requests",
+                  "pm.collectionVariables.set('materiaId', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Obtener materia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/materias/{{materiaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "materias",
+                "{{materiaId}}"
+              ]
+            },
+            "description": "Devuelve el detalle de una materia del usuario.\n\nErrores: 400 (el id no es un UUID), 404 (`Materia no encontrada`: no existe, es de otro usuario o está eliminada). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/materias/{{materiaId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "materias",
+                    "{{materiaId}}"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"nombre\": \"Cálculo\",\n  \"color\": \"#4A90E2\",\n  \"icono\": \"calculadora\",\n  \"fecha_creacion\": \"2026-09-26T15:30:00Z\",\n  \"fecha_modificacion\": \"2026-09-26T15:30:00Z\",\n  \"estado\": 1,\n  \"cantidad_notas\": 0\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Actualizar materia",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/materias/{{materiaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "materias",
+                "{{materiaId}}"
+              ]
+            },
+            "description": "Actualiza nombre, color e icono. El `id` y `fecha_creacion` del body son obligatorios pero se ignoran. Si `fecha_modificacion` es anterior a la guardada, se rechaza.\n\nErrores: 400 (id o datos inválidos), 404 (`Materia no encontrada`), 409 (`La versión enviada es más antigua que la guardada`). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{materiaId}}\",\n  \"nombre\": \"Cálculo Integral\",\n  \"color\": \"#E94E77\",\n  \"icono\": \"calculadora\",\n  \"fecha_creacion\": \"{{$isoTimestamp}}\",\n  \"fecha_modificacion\": \"{{$isoTimestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/materias/{{materiaId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "materias",
+                    "{{materiaId}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"id\": \"{{materiaId}}\",\n  \"nombre\": \"Cálculo Integral\",\n  \"color\": \"#E94E77\",\n  \"icono\": \"calculadora\",\n  \"fecha_creacion\": \"{{$isoTimestamp}}\",\n  \"fecha_modificacion\": \"{{$isoTimestamp}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"nombre\": \"Cálculo Integral\",\n  \"color\": \"#E94E77\",\n  \"icono\": \"calculadora\",\n  \"fecha_creacion\": \"2026-09-26T15:30:00Z\",\n  \"fecha_modificacion\": \"2026-09-26T16:10:00Z\",\n  \"estado\": 1,\n  \"cantidad_notas\": 0\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Eliminar materia",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/materias/{{materiaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "materias",
+                "{{materiaId}}"
+              ]
+            },
+            "description": "Borrado lógico: la materia queda con `estado` 0 y deja de aparecer en los listados. Solo se puede eliminar si no tiene notas activas.\n\nErrores: 400 (id inválido), 404 (`Materia no encontrada`), 409 (`No se puede eliminar una materia que tiene notas`). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "204 No Content",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/materias/{{materiaId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "materias",
+                    "{{materiaId}}"
+                  ]
+                }
+              },
+              "status": "No Content",
+              "code": 204,
+              "header": [],
+              "body": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Notas",
+      "description": "CRUD de notas del usuario autenticado. Crear una nota necesita una materia activa: ejecuta antes \"Crear materia\". Los requests con `{{notaId}}` usan la última nota creada con \"Crear nota\".",
+      "item": [
+        {
+          "name": "Listar notas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notas"
+              ]
+            },
+            "description": "Lista las notas activas del usuario, de la más reciente a la más antigua.\n\nErrores: 400 (`materia_id` no es un UUID). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/notas",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "notas"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "[\n  {\n    \"id\": \"9b2f8d4e-1c3a-4e5f-8a7b-6c5d4e3f2a1b\",\n    \"materia_id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n    \"titulo\": \"Ciclo de vida de una Activity\",\n    \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n    \"imagen_url\": null,\n    \"fecha_creacion\": \"2026-09-26T15:45:00Z\",\n    \"fecha_modificacion\": \"2026-09-26T15:45:00Z\",\n    \"estado\": 1\n  }\n]",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Listar notas por materia",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notas?materia_id={{materiaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notas"
+              ],
+              "query": [
+                {
+                  "key": "materia_id",
+                  "value": "{{materiaId}}"
+                }
+              ]
+            },
+            "description": "Lista las notas activas de una materia. Si la materia no existe o es de otro usuario, responde `[]`.\n\nErrores: 400 (`El valor de 'materia_id' no es válido`). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/notas?materia_id={{materiaId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "notas"
+                  ],
+                  "query": [
+                    {
+                      "key": "materia_id",
+                      "value": "{{materiaId}}"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "[\n  {\n    \"id\": \"9b2f8d4e-1c3a-4e5f-8a7b-6c5d4e3f2a1b\",\n    \"materia_id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n    \"titulo\": \"Ciclo de vida de una Activity\",\n    \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n    \"imagen_url\": null,\n    \"fecha_creacion\": \"2026-09-26T15:45:00Z\",\n    \"fecha_modificacion\": \"2026-09-26T15:45:00Z\",\n    \"estado\": 1\n  }\n]",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Buscar notas por texto",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notas?q=bucle",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notas"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "bucle"
+                }
+              ]
+            },
+            "description": "Busca notas cuyo **texto** contenga `q` (sin distinguir mayúsculas). No busca en el título. Se puede combinar con `materia_id`.\n\nErrores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/notas?q=bucle",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "notas"
+                  ],
+                  "query": [
+                    {
+                      "key": "q",
+                      "value": "bucle"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "[\n  {\n    \"id\": \"9b2f8d4e-1c3a-4e5f-8a7b-6c5d4e3f2a1b\",\n    \"materia_id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n    \"titulo\": \"Ciclo de vida de una Activity\",\n    \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n    \"imagen_url\": null,\n    \"fecha_creacion\": \"2026-09-26T15:45:00Z\",\n    \"fecha_modificacion\": \"2026-09-26T15:45:00Z\",\n    \"estado\": 1\n  }\n]",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Crear nota",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notas"
+              ]
+            },
+            "description": "Crea una nota en una materia del usuario. `texto` puede ser \"\" pero no null; `imagen_url` es opcional. Este request genera un UUID nuevo en cada envío y lo guarda en la variable `notaId`.\n\nErrores: 400 (datos inválidos o JSON mal formado), 404 (`La materia indicada no existe o no te pertenece`), 409 (`La nota ya existe`), 409 (error de integridad). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{notaId}}\",\n  \"materia_id\": \"{{materiaId}}\",\n  \"titulo\": \"Ciclo de vida de una Activity\",\n  \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n  \"imagen_url\": null,\n  \"fecha_creacion\": \"{{$isoTimestamp}}\",\n  \"fecha_modificacion\": \"{{$isoTimestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/notas",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "notas"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"id\": \"{{notaId}}\",\n  \"materia_id\": \"{{materiaId}}\",\n  \"titulo\": \"Ciclo de vida de una Activity\",\n  \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n  \"imagen_url\": null,\n  \"fecha_creacion\": \"{{$isoTimestamp}}\",\n  \"fecha_modificacion\": \"{{$isoTimestamp}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"9b2f8d4e-1c3a-4e5f-8a7b-6c5d4e3f2a1b\",\n  \"materia_id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"titulo\": \"Ciclo de vida de una Activity\",\n  \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n  \"imagen_url\": null,\n  \"fecha_creacion\": \"2026-09-26T15:45:00Z\",\n  \"fecha_modificacion\": \"2026-09-26T15:45:00Z\",\n  \"estado\": 1\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Genera un UUID nuevo para la nota y lo guarda para los demás requests",
+                  "pm.collectionVariables.set('notaId', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Obtener nota",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notas/{{notaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notas",
+                "{{notaId}}"
+              ]
+            },
+            "description": "Devuelve una nota del usuario.\n\nErrores: 400 (id no es un UUID), 404 (`Nota no encontrada`: no existe, es de otro usuario o está eliminada). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/notas/{{notaId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "notas",
+                    "{{notaId}}"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"9b2f8d4e-1c3a-4e5f-8a7b-6c5d4e3f2a1b\",\n  \"materia_id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"titulo\": \"Ciclo de vida de una Activity\",\n  \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n  \"imagen_url\": null,\n  \"fecha_creacion\": \"2026-09-26T15:45:00Z\",\n  \"fecha_modificacion\": \"2026-09-26T15:45:00Z\",\n  \"estado\": 1\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Actualizar nota",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notas/{{notaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notas",
+                "{{notaId}}"
+              ]
+            },
+            "description": "Reemplaza título, texto, imagen y, si cambia, la materia. Si no se manda `imagen_url`, la nota queda sin imagen. El `id` y `fecha_creacion` del body se ignoran.\n\nErrores: 400 (id o datos inválidos), 404 (`Nota no encontrada`), 404 (`La materia indicada no existe o no te pertenece`, al mover de materia), 409 (`La versión enviada es más antigua que la guardada`). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"{{notaId}}\",\n  \"materia_id\": \"{{materiaId}}\",\n  \"titulo\": \"Ciclo de vida de una Activity\",\n  \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n  \"imagen_url\": \"https://ejemplo.com/apuntes/ciclo-de-vida.jpg\",\n  \"fecha_creacion\": \"{{$isoTimestamp}}\",\n  \"fecha_modificacion\": \"{{$isoTimestamp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/notas/{{notaId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "notas",
+                    "{{notaId}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"id\": \"{{notaId}}\",\n  \"materia_id\": \"{{materiaId}}\",\n  \"titulo\": \"Ciclo de vida de una Activity\",\n  \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n  \"imagen_url\": \"https://ejemplo.com/apuntes/ciclo-de-vida.jpg\",\n  \"fecha_creacion\": \"{{$isoTimestamp}}\",\n  \"fecha_modificacion\": \"{{$isoTimestamp}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"9b2f8d4e-1c3a-4e5f-8a7b-6c5d4e3f2a1b\",\n  \"materia_id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n  \"titulo\": \"Ciclo de vida de una Activity\",\n  \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n  \"imagen_url\": \"https://ejemplo.com/apuntes/ciclo-de-vida.jpg\",\n  \"fecha_creacion\": \"2026-09-26T15:45:00Z\",\n  \"fecha_modificacion\": \"2026-09-26T16:30:00Z\",\n  \"estado\": 1\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Eliminar nota",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/notas/{{notaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notas",
+                "{{notaId}}"
+              ]
+            },
+            "description": "Borrado lógico: la nota queda con `estado` 0 y deja de aparecer en los listados.\n\nErrores: 400 (id inválido), 404 (`Nota no encontrada`). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "204 No Content",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/notas/{{notaId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "notas",
+                    "{{notaId}}"
+                  ]
+                }
+              },
+              "status": "No Content",
+              "code": 204,
+              "header": [],
+              "body": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Usuarios",
+      "description": "Perfil del usuario del token. El usuario se crea automáticamente la primera vez que llama a cualquier endpoint protegido.",
+      "item": [
+        {
+          "name": "Obtener mi perfil",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/usuarios/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "usuarios",
+                "me"
+              ]
+            },
+            "description": "Devuelve el perfil del usuario autenticado.\n\nErrores: 404 (`Usuario no encontrado`, en la práctica no ocurre). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/usuarios/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "usuarios",
+                    "me"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"Xk3pQ9rTz1aBcD4eF5gH6iJ7kL8m\",\n  \"correo\": \"laura.gomez@correo.com\",\n  \"nombre\": \"Usuario Lecto\",\n  \"nombre_usuario\": \"laura.gomez\",\n  \"foto_url\": null,\n  \"fecha_creacion\": \"2026-09-20T13:55:00Z\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Registrar usuario",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/usuarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "usuarios"
+              ]
+            },
+            "description": "Confirma el registro después del login. El filtro ya creó el usuario, así que solo devuelve el perfil con 201 (siempre 201, aunque ya existiera). No lleva body.\n\nErrores: 404 (`Usuario no encontrado`, en la práctica no ocurre). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/usuarios",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "usuarios"
+                  ]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"Xk3pQ9rTz1aBcD4eF5gH6iJ7kL8m\",\n  \"correo\": \"laura.gomez@correo.com\",\n  \"nombre\": \"Usuario Lecto\",\n  \"nombre_usuario\": \"laura.gomez\",\n  \"foto_url\": null,\n  \"fecha_creacion\": \"2026-09-20T13:55:00Z\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Actualizar mi perfil",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/usuarios/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "usuarios",
+                "me"
+              ]
+            },
+            "description": "Reemplaza `nombre`, `nombre_usuario` y `foto_url`. Si no se manda `foto_url`, se borra la foto guardada. El correo no se puede cambiar.\n\nErrores: 400 (datos inválidos), 404 (`Usuario no encontrado`), 409 (`El nombre de usuario ya está en uso`), 409 (error de integridad). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Laura Gómez\",\n  \"nombre_usuario\": \"laurag\",\n  \"foto_url\": \"https://ejemplo.com/fotos/laura.jpg\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/usuarios/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "usuarios",
+                    "me"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"nombre\": \"Laura Gómez\",\n  \"nombre_usuario\": \"laurag\",\n  \"foto_url\": \"https://ejemplo.com/fotos/laura.jpg\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": \"Xk3pQ9rTz1aBcD4eF5gH6iJ7kL8m\",\n  \"correo\": \"laura.gomez@correo.com\",\n  \"nombre\": \"Laura Gómez\",\n  \"nombre_usuario\": \"laurag\",\n  \"foto_url\": \"https://ejemplo.com/fotos/laura.jpg\",\n  \"fecha_creacion\": \"2026-09-20T13:55:00Z\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Eliminar mi cuenta",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/usuarios/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "usuarios",
+                "me"
+              ]
+            },
+            "description": "⚠️ IRREVERSIBLE. Borra todas las notas, materias y el usuario de la base, y después la cuenta en Firebase. Después de esto las credenciales del environment dejan de funcionar.\n\nErrores: 404 (`Usuario no encontrado`), 500 (`Los datos de la cuenta ya se borraron, pero no se pudo eliminar el usuario en Firebase`). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "204 No Content",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/usuarios/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "usuarios",
+                    "me"
+                  ]
+                }
+              },
+              "status": "No Content",
+              "code": 204,
+              "header": [],
+              "body": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Sync",
+      "description": "Sincronización de la base local de la app con el servidor.",
+      "item": [
+        {
+          "name": "Sincronización inicial",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sync",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sync"
+              ]
+            },
+            "description": "Primera sincronización: devuelve todas las materias y notas activas. `cantidad_notas` siempre viene en 0 (la app lo calcula). Guarda `sincronizado_en` para la próxima vez.\n\nErrores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/sync",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "sync"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"materias\": [\n    {\n      \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n      \"nombre\": \"Cálculo Integral\",\n      \"color\": \"#E94E77\",\n      \"icono\": \"calculadora\",\n      \"fecha_creacion\": \"2026-09-26T15:30:00Z\",\n      \"fecha_modificacion\": \"2026-09-26T16:10:00Z\",\n      \"estado\": 1,\n      \"cantidad_notas\": 0\n    }\n  ],\n  \"notas\": [\n    {\n      \"id\": \"9b2f8d4e-1c3a-4e5f-8a7b-6c5d4e3f2a1b\",\n      \"materia_id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n      \"titulo\": \"Ciclo de vida de una Activity\",\n      \"texto\": \"onCreate, onStart, onResume, onPause, onStop, onDestroy. El bucle principal de la app vuelve a onResume al regresar del segundo plano.\",\n      \"imagen_url\": \"https://ejemplo.com/apuntes/ciclo-de-vida.jpg\",\n      \"fecha_creacion\": \"2026-09-26T15:45:00Z\",\n      \"fecha_modificacion\": \"2026-09-26T16:30:00Z\",\n      \"estado\": 1\n    }\n  ],\n  \"sincronizado_en\": \"2026-09-26T16:45:00.123456Z\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        },
+        {
+          "name": "Sincronizar cambios desde fecha",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sync?desde=2026-09-26T15:00:00Z",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "sync"
+              ],
+              "query": [
+                {
+                  "key": "desde",
+                  "value": "2026-09-26T15:00:00Z"
+                }
+              ]
+            },
+            "description": "Devuelve lo que cambió después de `desde` (el `sincronizado_en` anterior), incluidos los registros eliminados con `estado` 0. Usa fechas en UTC con `Z`.\n\nErrores: 400 (`El valor de 'desde' no es válido`). Errores comunes: 401 (token ausente, mal formado, inválido o expirado), 415 (falta Content-Type: application/json en POST/PUT), 503 (no se pudo registrar el usuario), 500 (error interno)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/sync?desde=2026-09-26T15:00:00Z",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "sync"
+                  ],
+                  "query": [
+                    {
+                      "key": "desde",
+                      "value": "2026-09-26T15:00:00Z"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"materias\": [\n    {\n      \"id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n      \"nombre\": \"Cálculo Integral\",\n      \"color\": \"#E94E77\",\n      \"icono\": \"calculadora\",\n      \"fecha_creacion\": \"2026-09-26T15:30:00Z\",\n      \"fecha_modificacion\": \"2026-09-26T16:10:00Z\",\n      \"estado\": 1,\n      \"cantidad_notas\": 0\n    }\n  ],\n  \"notas\": [\n    {\n      \"id\": \"9b2f8d4e-1c3a-4e5f-8a7b-6c5d4e3f2a1b\",\n      \"materia_id\": \"7c9e6679-7425-40de-944b-e07fc1f90ae7\",\n      \"titulo\": \"Ciclo de vida de una Activity\",\n      \"texto\": \"\",\n      \"imagen_url\": null,\n      \"fecha_creacion\": \"2026-09-26T15:45:00Z\",\n      \"fecha_modificacion\": \"2026-09-26T16:40:12.345678Z\",\n      \"estado\": 0\n    }\n  ],\n  \"sincronizado_en\": \"2026-09-26T16:45:00.123456Z\"\n}",
+              "_postman_previewlanguage": "json"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

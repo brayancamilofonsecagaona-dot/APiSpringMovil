@@ -180,6 +180,39 @@ petición después de eso puede tardar bastante en responder mientras arranca.
 
 ---
 
+## Probar la API con Postman
+
+En la carpeta `postman/` están la colección y el environment:
+
+- `Lecto-API.postman_collection.json` — un request por endpoint, agrupados en Salud, Materias, Notas, Usuarios y Sync.
+- `Lecto.postman_environment.json` — variables `baseUrl`, `baseUrlLocal`, `apiKey`, `email`, `password` y `token`.
+
+Para importarlos:
+
+1. En Postman, **Import** → arrastra los dos archivos (o selecciónalos con *files*).
+2. Arriba a la derecha, selecciona el environment **Lecto**.
+3. En el environment, llena **`apiKey`**, **`email`** y **`password`** con tus propios datos:
+   - `apiKey`: la *Web API Key* del proyecto de Firebase (Firebase Console → Configuración del proyecto → General).
+   - `email` y `password`: un usuario de correo y contraseña creado en Firebase Authentication.
+
+   Ponlos en **Current value** y no en *Initial value*, así no se suben si alguien vuelve a exportar
+   el environment. **Nunca subas credenciales reales al repositorio.**
+
+Con esos tres datos, un script de la colección pide el token a Firebase antes de cada request y lo
+guarda en `token`. Si el token ya venció, lo renueva solo. Si prefieres no usar el script, deja esos
+campos vacíos y pega un token directamente en `token`.
+
+Todos los requests usan `{{baseUrl}}` (producción). Para probar en local, cambia el valor actual de
+`baseUrl` por el de `baseUrlLocal` (`http://localhost:8080`).
+
+"Crear materia" y "Crear nota" generan un UUID nuevo en cada envío y lo guardan en las variables de
+colección `materiaId` y `notaId`, que usan los demás requests. Por eso conviene crear primero y después
+consultar, editar o borrar.
+
+> ⚠️ "Eliminar mi cuenta" (`DELETE /usuarios/me`) borra de verdad el usuario, sus datos y la cuenta de Firebase.
+
+---
+
 ## Estructura del proyecto
 
 ```
